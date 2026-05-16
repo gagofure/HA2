@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "dev"
+    },
+    "prefix": {
+      "value": "ha2"
+    },
+    "resourceGroupName": {
+      "value": "ha2rgdevappname"
+    },
+    "secondaryResourceGroupName": {
+      "value": "ha2rg2devappname"
+    },
+    "primaryRegion": {
+      "value": "uksouth"
+    },
+    "secondaryRegion": {
+      "value": "ukwest"
+    },
+    "vnetAddressSpace": {
+      "value": "10.0.0.0/16"
+    },
+    "appSubnetPrefix": {
+      "value": "10.0.1.0/24"
+    },
+    "privateEndpointSubnetPrefix": {
+      "value": "10.0.2.0/24"
+    },
+    "secondaryVnetAddressSpace": {
+      "value": "10.1.0.0/16"
+    },
+    "secondaryAppSubnetPrefix": {
+      "value": "10.1.1.0/24"
+    },
+    "secondaryPrivateEndpointSubnetPrefix": {
+      "value": "10.1.2.0/24"
+    },
+    "tags": {
+      "value": {
+        "environment": "dev",
+        "project": "ha2-platform",
+        "managedBy": "bicep",
+        "costCenter": "ha2",
+        "owner": "Ogaga Agofure"
+      }
+    },
+    "sqlAdminLogin": {
+      "value": "sqladmin"
+    },
+    "sqlAdminPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<YOUR_SUBSCRIPTION_ID>/resourceGroups/ha2rgdevappname/providers/Microsoft.KeyVault/vaults/ha2-kv-dev"
+        },
+        "secretName": "sql-admin-password"
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "prod"
+    },
+    "prefix": {
+      "value": "ha2"
+    },
+    "resourceGroupName": {
+      "value": "ha2rgprodappname"
+    },
+    "secondaryResourceGroupName": {
+      "value": "ha2rg2prodappname"
+    },
+    "primaryRegion": {
+      "value": "uksouth"
+    },
+    "secondaryRegion": {
+      "value": "ukwest"
+    },
+    "vnetAddressSpace": {
+      "value": "10.2.0.0/16"
+    },
+    "appSubnetPrefix": {
+      "value": "10.2.1.0/24"
+    },
+    "privateEndpointSubnetPrefix": {
+      "value": "10.2.2.0/24"
+    },
+    "secondaryVnetAddressSpace": {
+      "value": "10.3.0.0/16"
+    },
+    "secondaryAppSubnetPrefix": {
+      "value": "10.3.1.0/24"
+    },
+    "secondaryPrivateEndpointSubnetPrefix": {
+      "value": "10.3.2.0/24"
+    },
+    "sqlAdminLogin": {
+      "value": "sqladmin"
+    },
+    "sqlAdminPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<YOUR_SUBSCRIPTION_ID>/resourceGroups/ha2rgprodappname/providers/Microsoft.KeyVault/vaults/ha2-kv-prod"
+        },
+        "secretName": "sql-admin-password"
+      }
+    },
+    "tags": {
+      "value": {
+        "environment": "prod",
+        "project": "ha2-platform",
+        "managedBy": "bicep",
+        "costCenter": "ha2",
+        "owner": "Ogaga Agofure"
+      }
+    }
+  }
+}
