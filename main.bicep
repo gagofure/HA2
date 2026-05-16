@@ -156,10 +156,12 @@ module keyVault 'modules/keyvault.bicep' = {
     prefix: prefix
     environmentName: environmentName
     region: primaryRegion
+    secondaryRegion: secondaryRegion
     sqlAdminPassword: sqlAdminPassword
     appServicePrincipalIdPrimary: appServiceUKS.outputs.managedIdentityPrincipalId
     appServicePrincipalIdSecondary: appServiceUKW.outputs.managedIdentityPrincipalId
     privateEndpointSubnetId: networkingUKS.outputs.privateEndpointSubnetId
+    secondaryPrivateEndpointSubnetId: networkingUKW.outputs.privateEndpointSubnetId
     kvPrivateDnsZoneId: privateDns.outputs.kvPrivateDnsZoneId
     tags: tags
   }

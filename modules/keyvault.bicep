@@ -1,16 +1,19 @@
 // Key Vault module
 // Stores SQL admin password as a secret
 // Grants both App Service managed identities read access via RBAC
-// Private endpoint restricts access to the primary VNet only
+// Private endpoints in BOTH regions — UK South App Service and UK West App Service
+// can each reach Key Vault via their own local private IP
 
 param prefix string
 param environmentName string
 param region string
+param secondaryRegion string
 @secure()
 param sqlAdminPassword string
 param appServicePrincipalIdPrimary string
 param appServicePrincipalIdSecondary string
 param privateEndpointSubnetId string
+param secondaryPrivateEndpointSubnetId string
 param kvPrivateDnsZoneId string
 param tags object
 
@@ -25,10 +28,10 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-02-01' = {
       name: 'standard'
     }
     tenantId: subscription().tenantId
-    enableRbacAuthorization: true // RBAC replaces legacy access policies
+    enableRbacAuthorization: true
     enableSoftDelete: true
-    softDeleteRetentionInDays: 7  // minimum; increase to 90 for prod
-    publicNetworkAccess: 'Disabled' // private endpoint is the only access path
+    softDeleteRetentionInDays: 7
+    publicNetworkAccess: 'Disabled'
   }
 }
 
@@ -51,7 +54,7 @@ resource kvRbacPrimary 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
     principalId: appServicePrincipalIdPrimary
-    principalType: 'ServicePrincipal' // managed identity — not a user or group
+    principalType: 'ServicePrincipal'
   }
 }
 
@@ -66,7 +69,10 @@ resource kvRbacSecondary 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
-// Private Endpoint — gives Key Vault a private IP inside the primary VNet
+// =============================================
+// PRIMARY PRIVATE ENDPOINT — UK South
+// =============================================
+
 resource privateEndpoint 'Microsoft.Network/privateEndpoints@2023-05-01' = {
   name: '${prefix}-pe-kv-${environmentName}'
   location: region
@@ -80,17 +86,57 @@ resource privateEndpoint 'Microsoft.Network/privateEndpoints@2023-05-01' = {
         name: '${prefix}-pe-kv-connection'
         properties: {
           privateLinkServiceId: keyVault.id
-          groupIds: ['vault'] // group ID for Key Vault private link
+          groupIds: ['vault']
         }
       }
     ]
   }
 }
 
-// DNS zone group — registers KV private IP in the private DNS zone automatically
 resource privateDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-05-01' = {
   parent: privateEndpoint
   name: 'kv-dns-zone-group'
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'privatelink-vaultcore-azure-net'
+        properties: {
+          privateDnsZoneId: kvPrivateDnsZoneId
+        }
+      }
+    ]
+  }
+}
+
+// =============================================
+// SECONDARY PRIVATE ENDPOINT — UK West
+// Closes the gap — UK West App Service now has its own
+// local private IP for Key Vault. No VNet peering needed.
+// =============================================
+
+resource privateEndpointSecondary 'Microsoft.Network/privateEndpoints@2023-05-01' = {
+  name: '${prefix}-pe-kv-secondary-${environmentName}'
+  location: secondaryRegion
+  tags: tags
+  properties: {
+    subnet: {
+      id: secondaryPrivateEndpointSubnetId
+    }
+    privateLinkServiceConnections: [
+      {
+        name: '${prefix}-pe-kv-secondary-connection'
+        properties: {
+          privateLinkServiceId: keyVault.id
+          groupIds: ['vault']
+        }
+      }
+    ]
+  }
+}
+
+resource privateDnsZoneGroupSecondary 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-05-01' = {
+  parent: privateEndpointSecondary
+  name: 'kv-dns-zone-group-secondary'
   properties: {
     privateDnsZoneConfigs: [
       {
