@@ -59,18 +59,22 @@ Multi-region, highly available Azure infrastructure built entirely with Bicep. A
                           │ App Subnet │       │ App Subnet     │
                           │ PE Subnet  │       │ PE Subnet      │
                           └─────┬──────┘       └─────┬──────────┘
-                                │ Private              │ Private
-                                │ Endpoints            │ Endpoint
-                ┌───────────────┼───────────┐          │
-                │               │           │          │
-          ┌─────▼────┐    ┌─────▼────┐ ┌────▼────┐ ┌──▼─────────┐
-          │   SQL    │    │   Key    │ │ Storage │ │   SQL      │
-          │ Primary  │    │  Vault   │ │ (UK     │ │ Secondary  │
-          │ UK South │    │ UK South │ │ South)  │ │ UK West    │
-          │          │    │ Secrets  │ │ LRS     │ │            │
-          │ Public:  │    │ Public:  │ │ HTTPS   │ │ Public:    │
-          │ Disabled │    │ Disabled │ │ only    │ │ Disabled   │
-          └─────┬────┘    └──────────┘ └─────────┘ └────┬───────┘
+                                │ Private Endpoints   │ Private Endpoints
+                ┌───────────────┼───────────┐         │
+                │               │           │         ├────────────┐
+                │               │           │         │            │
+          ┌─────▼────┐    ┌─────▼────┐ ┌────▼────┐ ┌──▼─────────┐ ┌▼──────────┐
+          │   SQL    │    │   Key    │ │ Storage │ │   SQL      │ │   Key     │
+          │ Primary  │    │  Vault   │ │ (UK     │ │ Secondary  │ │  Vault    │
+          │ UK South │    │  PE-1    │ │ South)  │ │ UK West    │ │   PE-2    │
+          │          │    │  UK South│ │ LRS     │ │            │ │  UK West  │
+          │ Public:  │    │  Secrets │ │ HTTPS   │ │ Public:    │ │ (same KV) │
+          │ Disabled │    │  Public: │ │ only    │ │ Disabled   │ │           │
+          │          │    │  Disabled│ │         │ │            │ │           │
+          └─────┬────┘    └─────┬────┘ └─────────┘ └────┬───────┘ └─────┬─────┘
+                │               │                       │                │
+                │               └────── same Key Vault ─────────────────┘
+                │                       (one KV, two PEs)
                 │                                       │
                 └────────── Failover Group ─────────────┘
                             Automatic
@@ -81,7 +85,8 @@ Multi-region, highly available Azure infrastructure built entirely with Bicep. A
   │  Private DNS Zones (Global — Linked to BOTH VNets)           │
   │                                                              │
   │  privatelink.database.windows.net    → SQL private IPs       │
-  │  privatelink.vaultcore.azure.net     → Key Vault private IP  │
+  │  privatelink.vaultcore.azure.net     → KV private IPs        │
+  │                                        (one per region)      │
   └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -89,7 +94,8 @@ Multi-region, highly available Azure infrastructure built entirely with Bicep. A
 
 - Each App Service connects to its **own** local VNet (App Services cannot integrate with a VNet in a different region)
 - Private endpoints sit inside the **PE subnet** of each VNet
-- Private DNS zones are **global** resources linked to **both** VNets — this is how UK West App Service resolves SQL hostnames to UK West private IPs
+- **Key Vault has two private endpoints** — one in UK South and one in UK West — pointing to the **same** Key Vault. This gives each App Service a local private IP without needing VNet peering.
+- Private DNS zones are **global** resources linked to **both** VNets. The KV DNS zone holds an A record for each private endpoint, so each region resolves the KV hostname to its own local private IP.
 - The SQL Failover Group is a **control-plane** relationship managed by Azure — not a network connection between the two VNets
 - The two VNets are **completely independent** — there is no VNet peering
 
@@ -124,15 +130,15 @@ How a user request travels through the system end-to-end:
                     │  Private DNS Zone   │
                     │  Resolves SQL/KV    │
                     │  hostnames to       │
-                    │  private IPs        │
+                    │  LOCAL private IPs  │
                     └──────────┬──────────┘
                                │
              ┌─────────────────┼──────────────────┐
              │                 │                  │
      ┌───────▼──────┐  ┌───────▼──────┐           │
      │  SQL via     │  │  Key Vault   │           │
-     │  Failover    │  │  via Private │           │
-     │  Group EP    │  │  Endpoint    │           │
+     │  Failover    │  │  via LOCAL   │           │
+     │  Group EP    │  │  Private EP  │           │
      └──────────────┘  └──────────────┘           │
 ```
 
@@ -158,7 +164,7 @@ Each region has a VNet with two subnets. The regions are isolated — there is n
   │  │  prod: 10.2.2.0/24           │                               │
   │  │                              │  Hosts private endpoints for: │
   │  │                              │  • SQL Primary                │
-  │  │                              │  • Key Vault                  │
+  │  │                              │  • Key Vault (PE-1)           │
   │  └──────────────────────────────┘                               │
   └─────────────────────────────────────────────────────────────────┘
 
@@ -174,7 +180,7 @@ Each region has a VNet with two subnets. The regions are isolated — there is n
   │  ┌──────────────────────────────┐                               │
   │  │  Private Endpoint Subnet     │  Hosts private endpoints for: │
   │  │  dev:  10.1.2.0/24           │  • SQL Secondary              │
-  │  │  prod: 10.3.2.0/24           │                               │
+  │  │  prod: 10.3.2.0/24           │  • Key Vault (PE-2, same KV)  │
   │  └──────────────────────────────┘                               │
   └─────────────────────────────────────────────────────────────────┘
 
@@ -182,7 +188,7 @@ Each region has a VNet with two subnets. The regions are isolated — there is n
   │  Private DNS Zones  (global — linked to both VNets)             │
   │                                                                 │
   │  privatelink.database.windows.net  →  SQL private IPs           │
-  │  privatelink.vaultcore.azure.net   →  Key Vault private IP      │
+  │  privatelink.vaultcore.azure.net   →  KV private IPs (per-PE)   │
   └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -205,9 +211,9 @@ Bicep resolves these automatically via output references. The order below shows 
      (needed for managed identity principal IDs)
         │
         ▼
-  4. Key Vault
-     (needs App Service managed identity principal IDs
-      and KV Private DNS zone ID)
+  4. Key Vault + RBAC + Two Private Endpoints (UKS + UKW)
+     (needs App Service managed identity principal IDs,
+      KV Private DNS zone ID, and PE subnet IDs from both regions)
         │
         ▼
   5. SQL Secondary — UK West
@@ -237,7 +243,7 @@ HA2/
     ├── appservice.bicep        # App Service Plan + App Service + VNet integration
     ├── storage.bicep           # Storage account
     ├── privateDns.bicep        # Private DNS zones for SQL and Key Vault
-    ├── keyvault.bicep          # Key Vault + secret + RBAC + private endpoint
+    ├── keyvault.bicep          # Key Vault + secret + RBAC + TWO private endpoints
     ├── sql.bicep               # Primary SQL server + database + failover group + PE
     ├── sqlSecondary.bicep      # Secondary SQL server + private endpoint
     └── frontDoor.bicep         # Front Door Premium + WAF + origins + route
@@ -267,7 +273,7 @@ Standard LRS storage account in UK South. HTTPS-only, TLS 1.2, no public blob ac
 ### `privateDns.bicep`
 Creates two global private DNS zones, each linked to both VNets:
 - `privatelink.database.windows.net` — for SQL private endpoints
-- `privatelink.vaultcore.azure.net` — for Key Vault private endpoint
+- `privatelink.vaultcore.azure.net` — for Key Vault private endpoints
 
 Linking to both VNets means both App Services (UK South and UK West) can resolve private hostnames correctly.
 
@@ -276,8 +282,10 @@ Creates:
 - Key Vault with RBAC authorization, soft delete enabled, public access disabled
 - `sql-admin-password` secret — stored at deploy time from the `@secure()` parameter
 - **Key Vault Secrets User** role assignment for both App Service managed identities — read-only secret access
-- Private endpoint in the UK South PE subnet
-- DNS zone group — automatically registers the KV private IP in the KV DNS zone
+- **Two private endpoints** for the same Key Vault:
+  - **PE-1** in the UK South PE subnet — serves the UK South App Service
+  - **PE-2** in the UK West PE subnet — serves the UK West App Service
+- Two DNS zone groups — each PE registers its own A record in the shared KV private DNS zone, so each region resolves the KV hostname to its local private IP
 
 ### `sql.bicep`
 Creates:
@@ -338,6 +346,15 @@ Both SQL servers and Key Vault have `publicNetworkAccess: 'Disabled'`. Access is
 **Why:** Eliminates the internet attack surface on sensitive data stores entirely. Even with strong authentication, public endpoints are exploitable through credential stuffing, misconfigured firewall rules, or zero-days. Removing the public path is a stronger guarantee than restricting it.
 
 **Trade-off:** Management tools (SSMS, Azure Portal query editor, KV portal browser) require VPN or Azure Bastion to reach the private endpoints. Direct public access for developers is not possible.
+
+---
+
+### Two Key Vault Private Endpoints (One Shared Key Vault)
+The Key Vault is a single resource in UK South, but two private endpoints are deployed — one in each region's PE subnet. The DNS zone group on each PE registers a separate A record in the shared private DNS zone, so each region resolves the KV hostname to its own local private IP.
+
+**Why:** Without this, the UK West App Service would resolve the KV hostname to the UK South private IP, but be unable to reach it because the VNets are not peered. Adding a second private endpoint gives UK West a local IP without needing VNet peering. This is the cheapest secure solution — approximately £7/month for one additional private endpoint, with no inter-region traffic costs.
+
+**Alternative considered:** VNet peering would also solve the problem but adds per-GB egress costs between regions and a larger attack surface. A second Key Vault in UK West would give true regional isolation but adds complexity around secret synchronisation between vaults.
 
 ---
 
@@ -427,7 +444,8 @@ All resources follow the pattern `{prefix}-{type}-{environment}-{region}`.
 | Storage Account | `ha2stdev{uniqueHash}` |
 | Private Endpoint (SQL primary) | `ha2-pe-sql-dev` |
 | Private Endpoint (SQL secondary) | `ha2-pe-sql-secondary-dev` |
-| Private Endpoint (Key Vault) | `ha2-pe-kv-dev` |
+| Private Endpoint (Key Vault — UKS) | `ha2-pe-kv-dev` |
+| Private Endpoint (Key Vault — UKW) | `ha2-pe-kv-secondary-dev` |
 | Front Door Profile | `ha2-afd-dev` |
 | WAF Policy | `ha2wafdev` |
 
@@ -544,6 +562,7 @@ After a successful deployment the following values are printed:
 |---------|----------------|
 | No public access to SQL | `publicNetworkAccess: 'Disabled'` on both servers |
 | No public access to Key Vault | `publicNetworkAccess: 'Disabled'` |
+| Cross-region Key Vault reach | Two private endpoints (one per region) on the same KV — no peering required |
 | No stored credentials | App Services use system-assigned managed identity |
 | Secrets not in parameters files | Key Vault reference replaces plaintext password post-bootstrap |
 | HTTPS enforced end-to-end | Front Door redirects HTTP; App Service `httpsOnly: true`; SQL TLS 1.2 |
